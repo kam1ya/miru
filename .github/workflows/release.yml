@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: miru-linux-x86_64
+            bin_path: target/x86_64-unknown-linux-gnu/release/miru
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: miru-windows-x86_64.exe
+            bin_path: target/x86_64-pc-windows-msvc/release/miru.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.bin_path }} => ${{ matrix.asset_name }}
