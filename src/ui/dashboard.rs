@@ -22,6 +22,7 @@ pub fn render_top_dashboard(f: &mut Frame, app: &App, area: Rect) {
 
     let primary_color = parse_hex_color(&app.config.theme.primary);
     let border_color = parse_hex_color(&app.config.theme.border);
+    let text_color = parse_hex_color(&app.config.theme.text);
 
     let cur_cpu = app.cpu_total_history.last().map(|(_, y)| *y).unwrap_or(0.0);
     let dataset = vec![Dataset::default()
@@ -38,16 +39,31 @@ pub fn render_top_dashboard(f: &mut Frame, app: &App, area: Rect) {
                 .title(" CPU History ")
                 .border_style(Style::default().fg(border_color)),
         )
-        .x_axis(Axis::default().bounds([0.0, 59.0]).labels(["-60s", "now"]))
-        .y_axis(Axis::default().bounds([0.0, 100.0]).labels(["0%", "100%"]));
+        .x_axis(
+            Axis::default()
+                .style(Style::default().fg(border_color))
+                .bounds([0.0, 59.0])
+                .labels(["-60s", "now"]),
+        )
+        .y_axis(
+            Axis::default()
+                .style(Style::default().fg(border_color))
+                .bounds([0.0, 100.0])
+                .labels(["0%", "100%"]),
+        );
     f.render_widget(chart, sub_chunks[0]);
 
     render_cores_heatmap(f, app, sub_chunks[1]);
-    render_sys_stats(f, app, sub_chunks[2]);
+    render_sys_stats(f, app, sub_chunks[2], text_color);
 }
 
 fn render_cores_heatmap(f: &mut Frame, app: &App, area: Rect) {
     let border_color = parse_hex_color(&app.config.theme.border);
+    let primary = parse_hex_color(&app.config.theme.primary);
+    let accent = parse_hex_color(&app.config.theme.accent);
+    let warn = parse_hex_color(&app.config.theme.text_warn);
+    let crit = parse_hex_color(&app.config.theme.text_crit);
+
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Core Activity ")
@@ -77,11 +93,12 @@ fn render_cores_heatmap(f: &mut Frame, app: &App, area: Rect) {
             let idx = r * cols + c;
             if idx < num_cores {
                 let usage = snapshot.core_usages[idx];
-                let (color, bar_symbol) = heatmap_style(usage);
+                let (color, bar_symbol) =
+                    heatmap_style(usage, primary, accent, warn, crit, border_color);
 
                 spans.push(Span::styled(
                     format!(" {:>2}:", idx + 1),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(border_color),
                 ));
                 spans.push(Span::styled(
                     format!("{:<4}", bar_symbol),
@@ -99,22 +116,33 @@ fn render_cores_heatmap(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn heatmap_style(usage: f64) -> (Color, &'static str) {
+fn heatmap_style(
+    usage: f64,
+    primary: Color,
+    accent: Color,
+    warn: Color,
+    crit: Color,
+    idle: Color,
+) -> (Color, &'static str) {
     if usage > 85.0 {
-        (Color::Rgb(255, 60, 60), "■■■■")
-    } else if usage > 60.0 {
-        (Color::Rgb(255, 140, 0), "■■■ ")
-    } else if usage > 35.0 {
-        (Color::Rgb(255, 215, 0), "■■  ")
-    } else if usage > 10.0 {
-        (Color::Rgb(0, 200, 150), "■   ")
+        (crit, "■■■■")
+    } else if usage > 55.0 {
+        (warn, "■■■ ")
+    } else if usage > 25.0 {
+        (accent, "■■  ")
+    } else if usage > 8.0 {
+        (primary, "■   ")
     } else {
-        (Color::Rgb(60, 90, 120), "·   ")
+        (idle, "·   ")
     }
 }
 
-fn render_sys_stats(f: &mut Frame, app: &App, area: Rect) {
+fn render_sys_stats(f: &mut Frame, app: &App, area: Rect, text_color: Color) {
     let border_color = parse_hex_color(&app.config.theme.border);
+    let accent_color = parse_hex_color(&app.config.theme.accent);
+    let primary_color = parse_hex_color(&app.config.theme.primary);
+    let secondary_color = parse_hex_color(&app.config.theme.secondary);
+
     let side_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -138,21 +166,30 @@ fn render_sys_stats(f: &mut Frame, app: &App, area: Rect) {
                 .title(" RAM ")
                 .border_style(Style::default().fg(border_color)),
         )
-        .gauge_style(Style::default().fg(Color::Rgb(180, 100, 255)))
+        .gauge_style(Style::default().fg(accent_color))
         .percent(mem_percent)
-        .label(format!(
-            "{} / {}",
-            format_bytes(used_mem),
-            format_bytes(total_mem)
+        .label(Span::styled(
+            format!("{} / {}", format_bytes(used_mem), format_bytes(total_mem)),
+            Style::default().fg(text_color).add_modifier(Modifier::BOLD),
         ));
     f.render_widget(ram_gauge, side_chunks[0]);
 
     let net_text = vec![Line::from(vec![
-        Span::styled("RX: ", Style::default().fg(Color::Green)),
-        Span::raw(format_rate_kbs(net_rx)),
-        Span::raw(" | "),
-        Span::styled("TX: ", Style::default().fg(Color::Cyan)),
-        Span::raw(format_rate_kbs(net_tx)),
+        Span::styled(
+            "RX: ",
+            Style::default()
+                .fg(secondary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format_rate_kbs(net_rx), Style::default().fg(text_color)),
+        Span::styled(" | ", Style::default().fg(border_color)),
+        Span::styled(
+            "TX: ",
+            Style::default()
+                .fg(primary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format_rate_kbs(net_tx), Style::default().fg(text_color)),
     ])];
     let net_widget = Paragraph::new(net_text).block(
         Block::default()

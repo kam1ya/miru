@@ -17,6 +17,15 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, app: &mut App) {
+    let bg_color = parse_hex_color(&app.config.theme.bg);
+    let text_color = parse_hex_color(&app.config.theme.text);
+
+    // Заливаем общий фон окна цветом активной темы
+    f.render_widget(
+        Block::default().style(Style::default().bg(bg_color).fg(text_color)),
+        f.area(),
+    );
+
     let (search_area, content_area) = if app.show_dashboard {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -81,6 +90,9 @@ fn render_search_bar(f: &mut Frame, app: &App, area: Rect) {
     let border_color = parse_hex_color(&app.config.theme.border);
     let crit_color = parse_hex_color(&app.config.theme.text_crit);
     let warn_color = parse_hex_color(&app.config.theme.text_warn);
+    let primary_color = parse_hex_color(&app.config.theme.primary);
+    let accent_color = parse_hex_color(&app.config.theme.accent);
+    let text_color = parse_hex_color(&app.config.theme.text);
 
     let (color, title, text) = match app.input_mode {
         InputMode::Normal => {
@@ -88,7 +100,7 @@ fn render_search_bar(f: &mut Frame, app: &App, area: Rect) {
                 let color = if status.is_error {
                     crit_color
                 } else {
-                    parse_hex_color(&app.config.theme.primary)
+                    primary_color
                 };
                 (color, " Notification ", status.text.clone())
             } else {
@@ -113,22 +125,24 @@ fn render_search_bar(f: &mut Frame, app: &App, area: Rect) {
             "Confirm or cancel process termination".to_string(),
         ),
         InputMode::Help => (
-            parse_hex_color(&app.config.theme.primary),
+            accent_color,
             " Help Active ",
             "Press Esc, q, or ? to dismiss".to_string(),
         ),
         InputMode::ThemePicker => (
-            parse_hex_color(&app.config.theme.primary),
+            accent_color,
             " Theme Preview ",
             "Use j/k to preview themes, Enter to save, Esc to revert".to_string(),
         ),
     };
 
-    let p = Paragraph::new(text).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(color))
-            .title(title),
-    );
+    let p = Paragraph::new(text)
+        .style(Style::default().fg(text_color))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(color))
+                .title(title),
+        );
     f.render_widget(p, area);
 }

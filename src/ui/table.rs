@@ -3,19 +3,24 @@ use crate::config::parse_hex_color;
 use crate::util::format_rate_kbs;
 use ratatui::{
     layout::{Constraint, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::{Block, Borders, HighlightSpacing, Row, Table},
     Frame,
 };
 
 pub fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
+    let primary_color = parse_hex_color(&app.config.theme.primary);
     let sec_color = parse_hex_color(&app.config.theme.secondary);
+    let accent_color = parse_hex_color(&app.config.theme.accent);
+    let text_color = parse_hex_color(&app.config.theme.text);
+    let warn_color = parse_hex_color(&app.config.theme.text_warn);
+    let crit_color = parse_hex_color(&app.config.theme.text_crit);
     let border_color = parse_hex_color(&app.config.theme.border);
     let hl_bg = parse_hex_color(&app.config.theme.highlight_bg);
     let hl_fg = parse_hex_color(&app.config.theme.highlight_fg);
 
     let header = Row::new(vec!["PID", "Process Name", "CPU %", "Memory", "Disk I/O", "Ports"])
-        .style(Style::default().fg(sec_color).add_modifier(Modifier::BOLD))
+        .style(Style::default().fg(accent_color).add_modifier(Modifier::BOLD))
         .bottom_margin(1);
 
     let is_tree = app.is_tree_view && app.search_query.trim().is_empty();
@@ -24,12 +29,15 @@ pub fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
         .display_processes
         .iter()
         .map(|p| {
-            let cpu_color = if p.cpu > 25.0 {
-                Color::Red
+            let row_color = if p.cpu > 25.0 {
+                crit_color
             } else if p.cpu > 5.0 {
-                Color::Yellow
+                warn_color
+            } else if !p.listening_ports.is_empty() {
+                // Процессы с открытыми портами слегка выделяем цветом secondary
+                sec_color
             } else {
-                Color::White
+                text_color
             };
 
             let mem_str = if p.memory_mb >= 1024.0 {
@@ -82,21 +90,29 @@ pub fn render_process_table(f: &mut Frame, app: &mut App, area: Rect) {
                 disk_str,
                 ports_str,
             ])
-                .style(Style::default().fg(cpu_color))
+                .style(Style::default().fg(row_color))
         })
         .collect();
 
     let is_focused = app.focused_pane == FocusedPane::Table;
     let table_border = if is_focused {
-        parse_hex_color(&app.config.theme.primary)
+        primary_color
     } else {
         border_color
     };
 
+    let total_items = app.display_processes.len();
+    let selected_idx = app.table_state.selected().unwrap_or(0);
+
+    let pos_str = match ((selected_idx + 1) * 100).checked_div(total_items) {
+        Some(pct) => format!("{}/{} ({}%)", selected_idx + 1, total_items, pct),
+        None => "0/0".to_string(),
+    };
+
     let title = if is_focused {
-        format!(" Processes ({}) [ACTIVE] ", app.display_processes.len())
+        format!(" Processes ({}) [ACTIVE] ", pos_str)
     } else {
-        format!(" Processes ({}) ", app.display_processes.len())
+        format!(" Processes ({}) ", pos_str)
     };
 
     let table = Table::new(

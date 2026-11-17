@@ -9,8 +9,11 @@ use ratatui::{
 };
 
 pub fn render_help_modal(f: &mut Frame, app: &App) {
+    let bg = parse_hex_color(&app.config.theme.bg);
     let primary = parse_hex_color(&app.config.theme.primary);
     let secondary = parse_hex_color(&app.config.theme.secondary);
+    let accent = parse_hex_color(&app.config.theme.accent);
+    let text = parse_hex_color(&app.config.theme.text);
     let border = parse_hex_color(&app.config.theme.border);
 
     let term = f.area();
@@ -30,7 +33,7 @@ pub fn render_help_modal(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .title(" Keybindings ")
         .title_alignment(Alignment::Center)
-        .style(Style::default().bg(Color::Reset))
+        .style(Style::default().bg(bg))
         .border_style(Style::default().fg(primary));
 
     let inner = outer_block.inner(area);
@@ -58,7 +61,7 @@ pub fn render_help_modal(f: &mut Frame, app: &App) {
             ])
             .split(layout[1]);
 
-        let lines = build_left_column(primary, secondary, border);
+        let lines = build_left_column(primary, secondary, accent, text, border);
         f.render_widget(Paragraph::new(lines), single_col[1]);
     } else {
         let columns = Layout::default()
@@ -72,8 +75,8 @@ pub fn render_help_modal(f: &mut Frame, app: &App) {
             ])
             .split(layout[1]);
 
-        let left_lines = build_left_column(primary, secondary, border);
-        let right_lines = build_right_column(primary, secondary, border);
+        let left_lines = build_left_column(primary, secondary, accent, text, border);
+        let right_lines = build_right_column(primary, secondary, accent, text, border);
 
         f.render_widget(Paragraph::new(left_lines), columns[1]);
 
@@ -106,58 +109,76 @@ fn make_header(title: &'static str, color: Color) -> Line<'static> {
     ))
 }
 
-fn make_row(key: &'static str, desc: &'static str, key_color: Color, dim: Color) -> Line<'static> {
+fn make_row(
+    key: &'static str,
+    desc: &'static str,
+    key_color: Color,
+    text_color: Color,
+    dim: Color,
+) -> Line<'static> {
     Line::from(vec![
         Span::styled(
             format!("{:<10}", key),
             Style::default().fg(key_color).add_modifier(Modifier::BOLD),
         ),
         Span::styled("│ ", Style::default().fg(dim)),
-        Span::raw(desc),
+        Span::styled(desc, Style::default().fg(text_color)),
     ])
 }
 
-fn build_left_column(primary: Color, secondary: Color, border: Color) -> Vec<Line<'static>> {
+fn build_left_column(
+    primary: Color,
+    secondary: Color,
+    accent: Color,
+    text: Color,
+    border: Color,
+) -> Vec<Line<'static>> {
     vec![
-        make_header("NAVIGATION", secondary),
+        make_header("NAVIGATION", accent),
         Line::from(""),
-        make_row("j / ↓", "Move down", primary, border),
-        make_row("k / ↑", "Move up", primary, border),
-        make_row("Ctrl+d", "Half page down", primary, border),
-        make_row("Ctrl+u", "Half page up", primary, border),
-        make_row("gg", "Jump to top", primary, border),
-        make_row("G", "Jump to bottom", primary, border),
+        make_row("j / ↓", "Move down", primary, text, border),
+        make_row("k / ↑", "Move up", primary, text, border),
+        make_row("Ctrl+d", "Half page down", primary, text, border),
+        make_row("Ctrl+u", "Half page up", primary, text, border),
+        make_row("gg", "Jump to top", primary, text, border),
+        make_row("G", "Jump to bottom", primary, text, border),
         Line::from(""),
         make_header("PANES & LAYOUT", secondary),
         Line::from(""),
-        make_row("o / Enter", "Toggle Inspector", primary, border),
-        make_row("Tab", "Switch pane focus", primary, border),
-        make_row("Ctrl+w w", "Cycle windows", primary, border),
-        make_row("b", "Toggle Dashboard", primary, border),
-        make_row("t", "Tree / Flat view", primary, border),
-        make_row("T", "Select color theme", primary, border),
+        make_row("o / Enter", "Toggle Inspector", primary, text, border),
+        make_row("Tab", "Switch pane focus", primary, text, border),
+        make_row("Ctrl+w w", "Cycle windows", primary, text, border),
+        make_row("b", "Toggle Dashboard", primary, text, border),
+        make_row("t", "Tree / Flat view", primary, text, border),
+        make_row("T", "Select color theme", primary, text, border),
     ]
 }
 
-fn build_right_column(primary: Color, secondary: Color, border: Color) -> Vec<Line<'static>> {
+fn build_right_column(
+    primary: Color,
+    secondary: Color,
+    accent: Color,
+    text: Color,
+    border: Color,
+) -> Vec<Line<'static>> {
     vec![
-        make_header("PROCESS & SEARCH", secondary),
+        make_header("PROCESS & SEARCH", accent),
         Line::from(""),
-        make_row("/", "Search name / :port", primary, border),
-        make_row("x / d", "Terminate process", primary, border),
-        make_row("y / Enter", "Confirm action", primary, border),
-        make_row("Esc", "Cancel / Clear", primary, border),
+        make_row("/", "Search name / :port", primary, text, border),
+        make_row("x / d", "Terminate process", primary, text, border),
+        make_row("y / Enter", "Confirm action", primary, text, border),
+        make_row("Esc", "Cancel / Clear", primary, text, border),
         Line::from(""),
         make_header("SORTING", secondary),
         Line::from(""),
-        make_row("c", "Sort by CPU %", primary, border),
-        make_row("m", "Sort by Memory", primary, border),
-        make_row("s", "Sort by Disk I/O", primary, border),
-        make_row("p", "Sort by PID", primary, border),
+        make_row("c", "Sort by CPU %", primary, text, border),
+        make_row("m", "Sort by Memory", primary, text, border),
+        make_row("s", "Sort by Disk I/O", primary, text, border),
+        make_row("p", "Sort by PID", primary, text, border),
         Line::from(""),
-        make_header("GENERAL", secondary),
+        make_header("GENERAL", accent),
         Line::from(""),
-        make_row("? / F1", "Toggle help", primary, border),
-        make_row("q", "Quit miru", primary, border),
+        make_row("? / F1", "Toggle help", primary, text, border),
+        make_row("q", "Quit miru", primary, text, border),
     ]
 }

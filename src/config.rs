@@ -13,16 +13,22 @@ pub const PRESETS: &[&str] = &[
     "ayu-dark",
 ];
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ThemeSection {
     #[serde(default = "default_preset")]
     pub preset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub primary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secondary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub highlight_bg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,26 +43,14 @@ fn default_preset() -> String {
     "miru".to_string()
 }
 
-impl Default for ThemeSection {
-    fn default() -> Self {
-        Self {
-            preset: default_preset(),
-            border: None,
-            primary: None,
-            secondary: None,
-            highlight_bg: None,
-            highlight_fg: None,
-            text_warn: None,
-            text_crit: None,
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ResolvedTheme {
+    pub bg: String,
     pub border: String,
     pub primary: String,
     pub secondary: String,
+    pub accent: String,
+    pub text: String,
     pub highlight_bg: String,
     pub highlight_fg: String,
     pub text_warn: String,
@@ -65,35 +59,46 @@ pub struct ResolvedTheme {
 
 impl ResolvedTheme {
     pub fn from_preset(name: &str) -> Self {
-        let (border, primary, secondary, hl_bg, hl_fg, warn, crit) =
+        let (bg, border, primary, secondary, accent, text, hl_bg, hl_fg, warn, crit) =
             match name.to_lowercase().as_str() {
                 "catppuccin" => (
-                    "#45475a", "#89b4fa", "#f9e2af", "#313244", "#cba6f7", "#fab387", "#f38ba8",
+                    "#1e1e2e", "#585b70", "#89b4fa", "#f9e2af", "#cba6f7", "#cdd6f4", "#313244",
+                    "#f5c2e7", "#fab387", "#f38ba8",
                 ),
                 "tokyo-night" => (
-                    "#414868", "#7aa2f7", "#e0af68", "#283457", "#7dcfff", "#e0af68", "#f7768e",
+                    "#1a1b26", "#414868", "#7aa2f7", "#e0af68", "#bb9af7", "#c0caf5", "#283457",
+                    "#7dcfff", "#e0af68", "#f7768e",
                 ),
                 "gruvbox" => (
-                    "#504945", "#83a598", "#fabd2f", "#3c3836", "#fe8019", "#fabd2f", "#fb4934",
+                    "#282828", "#665c54", "#83a598", "#fabd2f", "#b8bb26", "#ebdbb2", "#3c3836",
+                    "#fe8019", "#fabd2f", "#fb4934",
                 ),
                 "dracula" => (
-                    "#44475a", "#bd93f9", "#f1fa8c", "#44475a", "#8be9fd", "#ffb86c", "#ff5555",
+                    "#282a36", "#6272a4", "#bd93f9", "#f1fa8c", "#ff79c6", "#f8f8f2", "#44475a",
+                    "#8be9fd", "#ffb86c", "#ff5555",
                 ),
                 "nord" => (
-                    "#4c566a", "#88c0d0", "#ebcb8b", "#3b4252", "#8fbcbb", "#d08770", "#bf616a",
+                    "#2e3440", "#4c566a", "#88c0d0", "#ebcb8b", "#81a1c1", "#eceff4", "#3b4252",
+                    "#8fbcbb", "#d08770", "#bf616a",
                 ),
                 "ayu-dark" => (
-                    "#565b66", "#39bae6", "#ffb454", "#253340", "#ff8f40", "#ffb454", "#f07178",
+                    "#0b0e14", "#565b66", "#39bae6", "#ffb454", "#ff8f40", "#bfbdb6", "#253340",
+                    "#ff8f40", "#ffb454", "#f07178",
                 ),
                 _ => (
-                    "#555555", "#00d2ff", "#e5c07b", "#1e2d4b", "#00ffff", "#e5c07b", "#e06c75",
+                    // miru (по умолчанию оставляем прозрачный или глубокий тёмный)
+                    "reset", "#555555", "#00d2ff", "#e5c07b", "#98c379", "#dcdfe4", "#1e2d4b",
+                    "#00ffff", "#e5c07b", "#e06c75",
                 ),
             };
 
         Self {
+            bg: bg.into(),
             border: border.into(),
             primary: primary.into(),
             secondary: secondary.into(),
+            accent: accent.into(),
+            text: text.into(),
             highlight_bg: hl_bg.into(),
             highlight_fg: hl_fg.into(),
             text_warn: warn.into(),
@@ -137,9 +142,12 @@ impl AppConfig {
     pub fn rebuild_theme(&mut self) {
         let base = ResolvedTheme::from_preset(&self.section.preset);
         self.theme = ResolvedTheme {
+            bg: self.section.bg.clone().unwrap_or(base.bg),
             border: self.section.border.clone().unwrap_or(base.border),
             primary: self.section.primary.clone().unwrap_or(base.primary),
             secondary: self.section.secondary.clone().unwrap_or(base.secondary),
+            accent: self.section.accent.clone().unwrap_or(base.accent),
+            text: self.section.text.clone().unwrap_or(base.text),
             highlight_bg: self.section.highlight_bg.clone().unwrap_or(base.highlight_bg),
             highlight_fg: self.section.highlight_fg.clone().unwrap_or(base.highlight_fg),
             text_warn: self.section.text_warn.clone().unwrap_or(base.text_warn),
@@ -170,6 +178,9 @@ impl AppConfig {
 }
 
 pub fn parse_hex_color(hex: &str) -> Color {
+    if hex.eq_ignore_ascii_case("reset") {
+        return Color::Reset;
+    }
     let hex = hex.trim_start_matches('#');
     if hex.len() == 6 {
         if let (Ok(r), Ok(g), Ok(b)) = (

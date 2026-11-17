@@ -2,15 +2,17 @@ use crate::app::App;
 use crate::config::parse_hex_color;
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
 pub fn render_kill_modal(f: &mut Frame, app: &App) {
+    let bg = parse_hex_color(&app.config.theme.bg);
     let border_dim = parse_hex_color(&app.config.theme.border);
     let crit_color = parse_hex_color(&app.config.theme.text_crit);
+    let text_color = parse_hex_color(&app.config.theme.text);
 
     let target_name = app
         .target_to_kill
@@ -35,18 +37,18 @@ pub fn render_kill_modal(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .title(" Confirm Termination ")
         .title_alignment(Alignment::Center)
-        .style(Style::default().bg(Color::Reset))
+        .style(Style::default().bg(bg))
         .border_style(Style::default().fg(crit_color));
 
     let text = vec![
         Line::from(""),
         Line::from(vec![
-            Span::raw("Terminate process "),
+            Span::styled("Terminate process ", Style::default().fg(text_color)),
             Span::styled(
                 target_name,
                 Style::default().fg(crit_color).add_modifier(Modifier::BOLD),
             ),
-            Span::raw("?"),
+            Span::styled("?", Style::default().fg(text_color)),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -56,18 +58,18 @@ pub fn render_kill_modal(f: &mut Frame, app: &App) {
                 Style::default().fg(crit_color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" ] ", Style::default().fg(border_dim)),
-            Span::raw("Kill      "),
+            Span::styled("Kill      ", Style::default().fg(text_color)),
             Span::styled("[ ", Style::default().fg(border_dim)),
             Span::styled(
                 "N / Esc",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" ] ", Style::default().fg(border_dim)),
-            Span::raw("Cancel"),
+            Span::styled("Cancel", Style::default().fg(text_color)),
         ]),
     ];
 
     let p = Paragraph::new(text).block(block).alignment(Alignment::Center);
     f.render_widget(Clear, area);
     f.render_widget(p, area);
-}
+}   
