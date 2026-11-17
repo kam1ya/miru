@@ -1,10 +1,10 @@
 use crate::model::{ProcessData, SystemSnapshot};
 use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::thread;
 use std::time::Duration;
 use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, System,
+    CpuRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind, RefreshKind, System,
 };
 use tokio::sync::watch;
 
@@ -12,107 +12,119 @@ pub fn start_collector(tx: watch::Sender<Option<SystemSnapshot>>) {
     thread::Builder::new()
         .name("miru-collector".into())
         .spawn(move || {
-            let mut system = System::new_with_specifics(
-                sysinfo::RefreshKind::nothing()
-                    .with_cpu(CpuRefreshKind::everything())
-                    .with_memory(MemoryRefreshKind::everything())
-                    .with_processes(ProcessRefreshKind::everything()),
-            )
-                .expect("Failed to init sysinfo");
+            let refresh_kind = RefreshKind::nothing()
+                .with_cpu(CpuRefreshKind::everything())
+                .with_processes(ProcessRefreshKind::everything())
+                .with_memory(MemoryRefreshKind::everything());
 
-            let mut networks = Networks::new_with_refreshed_list()
-                .expect("Failed to init networks");
+            let mut sys = System::new_with_specifics(refresh_kind)
+                .expect("Failed to initialize sysinfo System");
 
-            system.refresh_all();
+            let mut networks =
+                Networks::new_with_refreshed_list().expect("Failed to initialize Networks");
+
+            let mut disks = Disks::new_with_refreshed_list().expect("Failed to initialize Disks");
+
+            // Первичный прогрев счётчиков CPU
+            sys.refresh_cpu_usage();
             thread::sleep(Duration::from_millis(200));
 
             loop {
-                system.refresh_cpu_all();
-                system.refresh_memory();
-                system.refresh_processes(ProcessesToUpdate::All, true);
+                sys.refresh_specifics(refresh_kind);
                 networks.refresh(true);
+                disks.refresh(true);
 
-                // 1. Опрос открытых сетевых сокетов (TCP/UDP)
-                let mut ports_map: HashMap<u32, Vec<u16>> = HashMap::new();
-                let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
-                let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
-
-                if let Ok(sockets) = get_sockets_info(af_flags, proto_flags) {
-                    for s in sockets {
-                        let port = match s.protocol_socket_info {
-                            ProtocolSocketInfo::Tcp(tcp) => tcp.local_port,
-                            ProtocolSocketInfo::Udp(udp) => udp.local_port,
-                        };
-                        for pid in s.associated_pids {
-                            let entry = ports_map.entry(pid).or_default();
-                            if !entry.contains(&port) {
-                                entry.push(port);
-                            }
-                        }
-                    }
+                // 1. Сетевые метрики (суммарно по всем интерфейсам)
+                let mut total_rx_rate = 0.0;
+                let mut total_tx_rate = 0.0;
+                for (_name, net) in &networks {
+                    total_rx_rate += net.received() as f64 / 1024.0;
+                    total_tx_rate += net.transmitted() as f64 / 1024.0;
                 }
 
-                // 2. Сеть
-                let mut total_rx = 0;
-                let mut total_tx = 0;
-                for (_, net) in &networks {
-                    total_rx += net.received();
-                    total_tx += net.transmitted();
+                // 2. Сбор открытых слушающих сокетов и привязка к PID
+                let ports_map = collect_listening_ports();
+
+                // 3. Сбор списка процессов с нормализацией нагрузки CPU (0..100%)
+                let cpu_count = sys.cpus().len().max(1) as f32;
+                let mut processes = Vec::with_capacity(sys.processes().len());
+
+                for (&pid, p) in sys.processes() {
+                    let disk_usage = p.disk_usage();
+                    let pid_u32 = pid.as_u32();
+                    let listening_ports = ports_map.get(&pid_u32).cloned().unwrap_or_default();
+
+                    processes.push(ProcessData {
+                        pid,
+                        parent_pid: p.parent(),
+                        name: p.name().to_string_lossy().to_string(),
+                        cpu: p.cpu_usage() / cpu_count,
+                        memory_mb: p.memory() as f64 / 1024.0 / 1024.0,
+                        disk_read_sec: disk_usage.read_bytes as f64 / 1024.0,
+                        disk_write_sec: disk_usage.written_bytes as f64 / 1024.0,
+                        exe_path: p.exe().map(|path| path.to_path_buf()),
+                        cmd: p
+                            .cmd()
+                            .iter()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .collect(),
+                        run_time_secs: p.run_time(),
+                        listening_ports,
+                        depth: 0,
+                        is_last_child: false,
+                        children_count: 0,
+                    });
                 }
 
-                // 3. Ядра
-                let cpus = system.cpus();
-                let core_usages: Vec<f64> = cpus.iter().map(|c| c.usage() as f64).collect();
-                let cpu_cores = cpus.len().max(1) as f32;
-
-                // 4. Процессы
-                let raw_procs: Vec<ProcessData> = system
-                    .processes()
-                    .iter()
-                    .map(|(pid, proc_info)| {
-                        let disk_usage = proc_info.disk_usage();
-                        let pid_u32 = pid.as_u32();
-                        let mut ports = ports_map.remove(&pid_u32).unwrap_or_default();
-                        ports.sort_unstable();
-
-                        ProcessData {
-                            pid: *pid,
-                            parent_pid: proc_info.parent(),
-                            name: proc_info.name().to_string_lossy().to_string(),
-                            cpu: proc_info.cpu_usage() / cpu_cores,
-                            memory_mb: proc_info.memory() as f64 / (1024.0 * 1024.0),
-                            disk_read_sec: disk_usage.read_bytes as f64 / 1024.0,
-                            disk_write_sec: disk_usage.written_bytes as f64 / 1024.0,
-                            exe_path: proc_info.exe().map(|p| p.to_path_buf()),
-                            cmd: proc_info
-                                .cmd()
-                                .iter()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .collect(),
-                            run_time_secs: proc_info.run_time(),
-                            listening_ports: ports,
-                            depth: 0,
-                            is_last_child: false,
-                            children_count: 0,
-                        }
-                    })
-                    .collect();
+                // 4. Метрики процессора и памяти
+                let total_cpu = sys.global_cpu_usage() as f64;
+                let core_usages: Vec<f64> = sys.cpus().iter().map(|c| c.usage() as f64).collect();
 
                 let snapshot = SystemSnapshot {
-                    total_cpu: system.global_cpu_usage() as f64,
+                    total_cpu,
                     core_usages,
-                    total_mem: system.total_memory(),
-                    used_mem: system.used_memory(),
-                    total_swap: system.total_swap(),
-                    used_swap: system.used_swap(),
-                    net_rx_rate: total_rx as f64 / 1024.0,
-                    net_tx_rate: total_tx as f64 / 1024.0,
-                    processes: raw_procs,
+                    total_mem: sys.total_memory(),
+                    used_mem: sys.used_memory(),
+                    total_swap: sys.total_swap(),
+                    used_swap: sys.used_swap(),
+                    net_rx_rate: total_rx_rate,
+                    net_tx_rate: total_tx_rate,
+                    processes,
                 };
 
-                let _ = tx.send(Some(snapshot));
+                if tx.send(Some(snapshot)).is_err() {
+                    break;
+                }
+
                 thread::sleep(Duration::from_millis(600));
             }
         })
-        .expect("Failed to start collector thread");
+        .expect("Failed to spawn miru-collector thread");
+}
+
+fn collect_listening_ports() -> HashMap<u32, Vec<u16>> {
+    let mut map: HashMap<u32, HashSet<u16>> = HashMap::new();
+    let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+    let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
+
+    if let Ok(sockets) = get_sockets_info(af_flags, proto_flags) {
+        for socket in sockets {
+            let port = match socket.protocol_socket_info {
+                ProtocolSocketInfo::Tcp(tcp) => tcp.local_port,
+                ProtocolSocketInfo::Udp(udp) => udp.local_port,
+            };
+
+            for pid in socket.associated_pids {
+                map.entry(pid).or_default().insert(port);
+            }
+        }
+    }
+
+    map.into_iter()
+        .map(|(pid, ports)| {
+            let mut sorted: Vec<u16> = ports.into_iter().collect();
+            sorted.sort_unstable();
+            (pid, sorted)
+        })
+        .collect()
 }

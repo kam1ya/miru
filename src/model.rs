@@ -19,6 +19,7 @@ pub struct ProcessData {
     pub children_count: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct SystemSnapshot {
     pub total_cpu: f64,
@@ -32,14 +33,16 @@ pub struct SystemSnapshot {
     pub processes: Vec<ProcessData>,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum InputMode {
     Normal,
     Search,
     ConfirmKill,
+    Help,
+    ThemePicker,
 }
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum SortCriterion {
     Cpu,
     Memory,
