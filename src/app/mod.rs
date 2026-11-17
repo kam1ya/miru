@@ -82,3 +82,59 @@ impl App {
         self.input_mode = InputMode::Normal;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::PRESETS;
+    use crate::model::{InputMode, SortCriterion};
+
+    #[test]
+    fn test_theme_picker_preview_and_cancel() {
+        let mut app = App::new();
+        app.config.preview_preset("miru");
+
+        // Открываем пикер тем
+        app.open_theme_picker();
+        assert_eq!(app.input_mode, InputMode::ThemePicker);
+        assert_eq!(app.theme_picker_idx, 0);
+
+        // Листаем вниз -> live preview на следующую тему (catppuccin)
+        app.theme_picker_down();
+        assert_eq!(app.theme_picker_idx, 1);
+        assert_eq!(app.config.section.preset, PRESETS[1]);
+
+        // Листаем вверх -> возвращаемся к miru, ещё раз вверх -> закольцовывается в конец (nord)
+        app.theme_picker_up();
+        assert_eq!(app.theme_picker_idx, 0);
+        app.theme_picker_up();
+        assert_eq!(app.theme_picker_idx, PRESETS.len() - 1);
+        assert_eq!(app.config.section.preset, PRESETS[PRESETS.len() - 1]);
+
+        // Отмена (Esc) откатывает тему обратно к исходной "miru"
+        app.cancel_theme_picker();
+        assert_eq!(app.input_mode, InputMode::Normal);
+        assert_eq!(app.config.section.preset, "miru");
+    }
+
+    #[test]
+    fn test_ui_toggles_and_sorting() {
+        let mut app = App::new();
+
+        // Переключение видимости верхнего дашборда
+        let initial_board = app.show_dashboard;
+        app.toggle_dashboard();
+        assert_eq!(app.show_dashboard, !initial_board);
+
+        // Переключение режима дерева
+        let initial_tree = app.is_tree_view;
+        app.toggle_tree_view();
+        assert_eq!(app.is_tree_view, !initial_tree);
+
+        // Смена критериев сортировки
+        app.set_sort(SortCriterion::Memory);
+        assert_eq!(app.sort_by, SortCriterion::Memory);
+        app.set_sort(SortCriterion::Disk);
+        assert_eq!(app.sort_by, SortCriterion::Disk);
+    }
+}

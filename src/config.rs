@@ -178,3 +178,48 @@ pub fn parse_hex_color(hex: &str) -> Color {
     }
     Color::Cyan
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_hex_color() {
+        assert_eq!(parse_hex_color("#ff00aa"), Color::Rgb(255, 0, 170));
+        assert_eq!(parse_hex_color("00d2ff"), Color::Rgb(0, 210, 255));
+        assert_eq!(parse_hex_color("invalid"), Color::Cyan);
+    }
+
+    #[test]
+    fn test_preset_fallback_and_override() {
+        let mut cfg = AppConfig {
+            section: ThemeSection {
+                preset: "tokyo-night".to_string(),
+                primary: Some("#123456".to_string()),
+                ..Default::default()
+            },
+            theme: ResolvedTheme::default(),
+        };
+
+        cfg.rebuild_theme();
+        // Переопределённое поле применилось
+        assert_eq!(cfg.theme.primary, "#123456");
+        // Остальные подтянулись из tokyo-night
+        assert_eq!(cfg.theme.border, "#414868");
+
+        // Неизвестный пресет откатывается на дефолтный miru
+        let fallback = ResolvedTheme::from_preset("non-existent");
+        assert_eq!(fallback.primary, "#00d2ff");
+    }
+
+    #[test]
+    fn test_clean_toml_serialization() {
+        let mut cfg = AppConfig::default();
+        cfg.preview_preset("catppuccin");
+
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        assert!(toml_str.contains("preset = \"catppuccin\""));
+        assert!(!toml_str.contains("border"));
+        assert!(!toml_str.contains("primary"));
+    }
+}
