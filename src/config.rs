@@ -10,6 +10,7 @@ pub const PRESETS: &[&str] = &[
     "gruvbox",
     "dracula",
     "nord",
+    "ayu-dark",
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -80,6 +81,9 @@ impl ResolvedTheme {
                 ),
                 "nord" => (
                     "#4c566a", "#88c0d0", "#ebcb8b", "#3b4252", "#8fbcbb", "#d08770", "#bf616a",
+                ),
+                "ayu-dark" => (
+                    "#565b66", "#39bae6", "#ffb454", "#253340", "#ff8f40", "#ffb454", "#f07178",
                 ),
                 _ => (
                     "#555555", "#00d2ff", "#e5c07b", "#1e2d4b", "#00ffff", "#e5c07b", "#e06c75",
